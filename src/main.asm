@@ -90,6 +90,9 @@ logging: .byte 00
 
 start:
     jsr checkU64
+    lda type
+    cmp #$ff
+    bne exit
     sendCommand(DOS_CMD_ECHO,DOS_CMD_ECHO_END)
     jsr readData
     jsr logStatus
@@ -102,25 +105,36 @@ start:
     jsr acceptData
     jsr logStatus
     print(dataBuffer)
+exit:
     rts    
+
+type: .word 0
 
 checkU64:{
     lda $df1d
     cmp #$00 //normalC64
     bne checkU64_ci_off
+    lda #$01
+    sta type
     print(txtNormalC64)
     jmp checked
 checkU64_ci_off:
     cmp #$ff //u64 deactivated cmd interface
     bne checkU64_ci_on
+    lda #$f0
+    sta type
     print(txtUltimate64InactiveCI)
     jmp checked
 checkU64_ci_on:    
     cmp #$c9 //u64 activated cmd interface 
     bne unkown
+    lda #$ff
+    sta type
     print(txtUltimate64ActiveCI)
     jmp checked
 unkown:
+    lda #$00
+    sta type
     log(txtUnkownDevice)
 checked:
     rts

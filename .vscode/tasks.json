@@ -43,7 +43,7 @@
         {
             "label": "Build and Run go64u",
             "dependsOn": [
-                //"build project",
+                "build project",
                 "Run go64u"
             ],
             "dependsOrder": "sequence",
