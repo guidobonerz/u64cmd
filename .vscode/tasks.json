@@ -1,0 +1,58 @@
+/*
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "type": "vs64",
+            "action": "build",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "label": "build project"
+        }
+    ]
+}
+    */
+
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "type": "vs64",
+            "action": "build",
+            "label": "build project",
+            "problemMatcher": []
+        },
+        {
+            "label": "Run go64u",
+            "type": "shell",
+            "command": "${userHome}/applications/go64u/go64u.exe",
+            "args": [
+                "--device",
+                "U64I",
+                "run",
+                "${workspaceFolder}/build/u64cmd.prg"
+            ],
+            "dependsOn": [
+                "build project"
+            ],
+            "dependsOrder": "sequence",
+            "problemMatcher": []
+        },
+        {
+            "label": "Build and Run go64u",
+            "dependsOn": [
+                //"build project",
+                "Run go64u"
+            ],
+            "dependsOrder": "sequence",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": []
+        }
+    ]
+}
+    

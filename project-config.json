@@ -1,0 +1,13 @@
+{
+    "name": "u64cmd",
+    "description": "Project u64cmd",
+    "toolkit": "kick",
+    "sources": [
+        "src/main.asm"
+    ],
+    "build": "debug",
+    "definitions": [],
+    "includes": [],
+    "args": [],
+    "compiler": ""
+}
