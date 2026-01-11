@@ -104,9 +104,34 @@ skip:
     pla
 }
 
+.macro printIPAddress(buffer){
+    lda buffer
+    sta uint8
+    jsr setUint8
+    print(txtuint8)
+    print(txtDot)
+    lda buffer+1
+    sta uint8
+    jsr setUint8
+    print(txtuint8)
+    print(txtDot)
+    lda buffer+2
+    sta uint8
+    jsr setUint8
+    print(txtuint8)
+    print(txtDot)
+    lda buffer+3
+    sta uint8
+    jsr setUint8
+    print(txtuint8)
+    print(CRLF)
+}
+
 status: .byte 00
 logging: .byte 00
 uppercase: .byte 00
+uint8: .byte 00
+uint16: .byte 00
 
 start:
     jsr checkU64
@@ -116,10 +141,12 @@ start:
     jmp exit
 isU64:
     jsr identify
-    jsr changeDir
-    jsr getPath
-    jsr openDir
-    jsr getDir
+    //jsr changeDir
+    //jsr getPath
+    //jsr openDir
+    //jsr getDir
+    jsr getNetworkInterfaces
+        
 exit:
     rts    
 
@@ -206,6 +233,55 @@ readList:
 exit:
     rts
 }
+
+networkInterfaceCount: .byte 0
+getNetworkInterfaces:{
+    print(txtNetworkInterfaces)
+    sendCommand(NET_CMD_GET_INTERFACE_COUNT,NET_CMD_GET_INTERFACE_COUNT_END)
+    jsr readData
+    jsr readStatusData
+    jsr accept
+    lda dataBuffer
+    sta networkInterfaceCount
+    sta uint8
+    jsr setUint8
+    print(txtuint8)
+    print(CRLF)
+    print(statusDataBuffer)
+    print(CRLF)
+    ldx #$00
+loop:
+    cpx networkInterfaceCount
+    bcs exit
+    stx NET_CMD_GET_IP_ADDRESS+2
+    txa
+    pha
+    jsr getIpAddress
+    pla
+    tax
+    inx
+    jmp loop
+exit:    
+    rts
+}
+
+
+getIpAddress:{
+    print(txtIpAdresses)
+    sendCommand(NET_CMD_GET_IP_ADDRESS,NET_CMD_GET_IP_ADDRESS_END)
+    jsr readData
+    jsr readStatusData
+    jsr accept
+    print(txtIpAddress)
+    printIPAddress(dataBuffer)
+    print(txtNetMask)
+    printIPAddress(dataBuffer+4)
+    print(txtGateway)
+    printIPAddress(dataBuffer+8)
+    print(statusDataBuffer)
+    print(CRLF)
+    rts
+}
 //.align $100
 checkU64:{
     lda $df1d
@@ -249,6 +325,7 @@ clearBuffer:{
 loop:
     lda #$00
     sta dataBuffer,x
+    sta statusDataBuffer,x
     dex
     bne loop
     rts
@@ -415,18 +492,19 @@ accepted:
 
 printValue:{
     sta status
-    jsr setStatusNumber
+    //jsr setStatusNumber
     print(txtValue)
     jsr setBinaryNumber
     print(txtStatusValue)
     rts
 }
 
+
 logStatus:{
     pha
     lda STATUS_REG
     sta status
-    jsr setStatusNumber
+    //jsr setStatusNumber
     log(txtStatusRegister)
     jsr setBinaryNumber
     log(txtStatusValue)
@@ -451,8 +529,11 @@ zero:
     rts
 }
 //.align $100
-setStatusNumber: {
-    lda status
+setUint8: {
+    pha
+    txa
+    pha
+    lda uint8
     ldx #$2f
     sec
 hundreds:
@@ -460,7 +541,7 @@ hundreds:
     sbc #100
     bcs hundreds
     adc #100
-    stx txtStatusValue
+    stx txtuint8
     ldx #$2f
     sec
 tens:
@@ -468,9 +549,12 @@ tens:
     sbc #10
     bcs tens
     adc #10
-    stx txtStatusValue+1
+    stx txtuint8+1
     ora #$30
-    sta txtStatusValue+2
+    sta txtuint8+2
+    pla
+    tax
+    pla
     rts
 }
 
@@ -541,6 +625,12 @@ txtCurrentPath:
 txtOpenDir:
 .text "> OPEN DIR"
 .byte 13,0
+txtNetworkInterfaces:
+.text "> NETWORK INTERFACES"
+.byte 13,0
+txtIpAdresses:
+.text "> IP ADRESSES"
+.byte 13,0
 txtWrite:
 .text "WRITE DATA"
 .byte 13,0
@@ -553,6 +643,9 @@ txtStatusRegister:
 txtValue:
 .text "VALUE: "
 .byte 0
+txtuint8:
+.text "   "
+.byte 0
 txtStatusValue:
 .text "000"
 .text "/"
@@ -560,8 +653,18 @@ txtStatusBinaryValue:
 .text "00000000"
 CRLF:
 .byte 13,0
-
-
+txtDot:
+.text "."
+.byte 0
+txtIpAddress:
+.text "IP ADDRESS: "
+.byte 0
+txtNetMask:
+.text "NET MASK  : "
+.byte 0
+txtGateway:
+.text "GATEWAY   : "
+.byte 0
 DOS_CMD_IDENTIFY:
 .byte $01,$01
 DOS_CMD_IDENTIFY_END:
@@ -592,6 +695,16 @@ DOS_CMD_CREATE_DIR_END:
 DOS_CMD_ECHO:
 .byte $01,$f0
 DOS_CMD_ECHO_END:
+
+NET_CMD_GET_INTERFACE_COUNT:
+.byte $03,$02
+NET_CMD_GET_INTERFACE_COUNT_END:
+
+NET_CMD_GET_IP_ADDRESS:
+.byte $03,$05,0
+NET_CMD_GET_IP_ADDRESS_END:
+
+
 
 //.align $100
 dataBuffer:
