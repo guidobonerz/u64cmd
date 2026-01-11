@@ -593,10 +593,10 @@ DOS_CMD_ECHO:
 .byte $01,$f0
 DOS_CMD_ECHO_END:
 
-//.pc = $f00
-.align $100
+//.align $100
 dataBuffer:
-.fill DATA_BUFFER_SIZE, 0
-//.pc = $4000
+//.fill DATA_BUFFER_SIZE, 0
+.fill 80,0
 statusDataBuffer:
-.fill DATA_BUFFER_SIZE, 0
+.fill 40,0
+//.fill DATA_BUFFER_SIZE, 0
