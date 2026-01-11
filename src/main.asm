@@ -39,8 +39,11 @@
 
 .macro log(text){
     pha
+    txa                     
+    pha
     tya
     pha
+    php
     lda logging
     cmp #$01
     bne skip
@@ -48,27 +51,40 @@
     ldy #>text
     jsr STROUT
 skip:
+    plp
     pla
     tay
+    pla
+    tax
     pla
 }
 
 .macro print(text){
     pha
+    txa                     
+    pha
     tya
     pha
+    php
     lda #<text
     ldy #>text
     jsr STROUT
+    plp
     pla
     tay
+    pla
+    tax
     pla
 }
 
 .macro sendCommand(cmdStart,cmdEnd){
     pha
+    txa                     
+    pha
     tya
     pha
+    php
+    jsr clearBuffer
     lda #<cmdStart
     sta CMD_POINTER
     lda #>cmdStart
@@ -80,54 +96,141 @@ skip:
     sta CMD_POINTER_END+1
     sta CMD_POINTER_END_COPY+1
     jsr _sendCommand
+    plp
     pla
-    tay    
+    tay
+    pla
+    tax
     pla
 }
 
 status: .byte 00
 logging: .byte 00
+uppercase: .byte 00
 
 start:
     jsr checkU64
     lda type
     cmp #$ff
-    bne exit
-    sendCommand(DOS_CMD_ECHO,DOS_CMD_ECHO_END)
-    jsr readData
-    jsr logStatus
-    jsr acceptData
-    jsr logStatus
-    //print(dataBuffer)
-    sendCommand(DOS_CMD_IDENTIFY,DOS_CMD_IDENTIFY_END)
-    jsr readData
-    jsr logStatus
-    jsr acceptData
-    jsr logStatus
-    print(dataBuffer)
+    beq isU64
+    jmp exit
+isU64:
+    jsr identify
+    jsr changeDir
+    jsr getPath
+    jsr openDir
+    jsr getDir
 exit:
     rts    
 
 type: .word 0
 
+//.align $100
+echo:{
+    sendCommand(DOS_CMD_ECHO,DOS_CMD_ECHO_END)
+    jsr readData
+    jsr accept
+    rts
+}
+//.align $100
+identify:{
+    print(txtIdentity)
+    sendCommand(DOS_CMD_IDENTIFY,DOS_CMD_IDENTIFY_END)
+    jsr readData
+    jsr accept
+    print(dataBuffer)
+    print(CRLF)
+    rts
+}
+//.align $100
+changeDir:{
+    print(txtChangeDir)
+    sendCommand(DOS_CMD_CHANGE_DIR,DOS_CMD_CHANGE_DIR_END)
+    jsr readStatusData
+    jsr accept
+    print(statusDataBuffer)
+    print(CRLF)
+    rts
+}
+//.align $100
+getPath:{
+    print(txtCurrentPath)
+    sendCommand(DOS_CMD_GET_PATH,DOS_CMD_GET_PATH_END)
+    lda #$01
+    sta uppercase
+    jsr readData
+    jsr accept
+    lda #$00
+    sta uppercase
+    print(dataBuffer)
+    print(CRLF)
+    rts
+}
+//.align $100
+createDir:{
+    sendCommand(DOS_CMD_CREATE_DIR,DOS_CMD_CREATE_DIR_END)
+    jsr readData
+    jsr accept
+    //print(dataBuffer)
+    //print(CRLF)
+    rts
+}
+//.align $100
+openDir:{
+    print(txtOpenDir)
+    sendCommand(DOS_CMD_OPEN_DIR,DOS_CMD_OPEN_DIR_END)
+    jsr readStatusData
+    jsr accept
+    print(statusDataBuffer)
+    print(CRLF)
+    rts
+}
+//.align $100
+getDir:{
+    print(txtGetDir)
+    sendCommand(DOS_CMD_READ_DIR,DOS_CMD_READ_DIR_END)
+readList:    
+    lda STATUS_REG
+    and #%10000000 // DATA_AV
+    cmp #%10000000
+    bne exit
+    lda #$01
+    sta uppercase
+    jsr readData
+    jsr accept
+    lda #$00
+    sta uppercase
+    print(dataBuffer+1)
+    print(CRLF)
+    jmp readList
+exit:
+    rts
+}
+//.align $100
 checkU64:{
     lda $df1d
     cmp #$00 //normalC64
-    bne checkU64_ci_off
+    beq normal
+    jmp checkU64_ci_off
+normal:
     lda #$01
     sta type
     print(txtNormalC64)
     jmp checked
 checkU64_ci_off:
     cmp #$ff //u64 deactivated cmd interface
-    bne checkU64_ci_on
+    beq u64_ci_off
+    jmp checkU64_ci_on
+u64_ci_off:
     lda #$f0
     sta type
     print(txtUltimate64InactiveCI)
     jmp checked
 checkU64_ci_on:    
     cmp #$c9 //u64 activated cmd interface 
-    bne unkown
+    beq u64_ci_on
+    jmp unkown
+u64_ci_on:
     lda #$ff
     sta type
     print(txtUltimate64ActiveCI)
@@ -140,10 +243,24 @@ checked:
     rts
 }
 
+//.align 100
+clearBuffer:{
+    ldx #$ff
+loop:
+    lda #$00
+    sta dataBuffer,x
+    dex
+    bne loop
+    rts
+}
+
+
+
+//.align $100
 commandLength: .word 0
 
 _sendCommand:{
-    log(txtPrepare)    
+    //log(txtPrepare)    
     lda #$00
     sta commandLength
     sta commandLength+1
@@ -172,11 +289,22 @@ resetEndPointer:
     lda CMD_POINTER_END_COPY+1
     sta CMD_POINTER_END+1  
     dec commandLength
-    jsr logStatus
-    jsr waitForIdle
+    ///--------------------
+    //log(txtBusy)
+    //jsr logStatus
+waitForIdle:
+    lda STATUS_REG
+    and #%00110000
+    cmp #$00
+    beq isIdle
+    //log(txtBusy)
+    jmp waitForIdle
+    //--------------------
+isIdle:
+    //log(txtIdle)
     ldy #$00
+    //log(txtWrite)
 writeCommand:
-    log(txtWrite)
     lda (CMD_POINTER),y
     sta DATA_REG
     cpy commandLength
@@ -184,80 +312,104 @@ writeCommand:
     iny 
     jmp writeCommand
 pushCommand:
-    log(txtPush)
-    lda #$01 // PUSH_CMD
+    //log(txtPush)
+    lda CONTROL_REG
+    ora #$01 // PUSH_CMD
     sta CONTROL_REG
-    jsr logStatus
 checkForError:
     lda STATUS_REG
     and #$04
     cmp #$04
     bne waitBusyClear
-    log(txtErrorAbort)
-    lda STATUS_REG
+    //log(txtErrorAbort)
+    lda CONTROL_REG
     ora #$08
-    sta STATUS_REG
+    sta CONTROL_REG
     jmp _sendCommand
-waitBusyClear:    
+waitBusyClear: 
     lda STATUS_REG
-    and #$10
+    and #$30
     cmp #$10
-    beq waitBusyClear
+    bne exit
+    jmp waitBusyClear
 exit:
-    print(txtCommandSent)
-    jsr logStatus
+    //print(txtCommandSent)
+    //jsr logStatus
     rts
 }
 
-waitForIdle:{
-    jsr logStatus
-    lda STATUS_REG
-    and #%00110000
-    cmp #$00
-    beq isIdle
-    log(txtBusy)
-    jmp waitForIdle
-isIdle:    
-    jsr logStatus
-    log(txtIdle)
-    rts
-}
-
-dataBufferCount: .byte 00
+//.align $100
 readData:{
-    log(txtRead)
-    lda #$00
-    sta dataBufferCount
+    //log(txtRead)
     ldx #$00
-readData:
+read:
     lda STATUS_REG
     and #%10000000 // DATA_AV
     cmp #%10000000
-    bne noMoreData
+    beq hasData
+    jmp noMoreData
+hasData:
     lda RESP_DATA_REG
+    ldy uppercase
+    cpy #$01
+    bne storeNormal
+    cmp #97 
+    bcs greaterThan
+    jmp storeNormal
+greaterThan:
+    cmp #123
+    bcc lessThan
+    jmp storeNormal
+lessThan:
+    sec
+    sbc #$20
+storeNormal:
     sta dataBuffer,x
     inx
-    jmp readData
+    jmp read
 noMoreData:
-    inx
     lda #$00
     sta dataBuffer,x // add termination
-    txa
-    jsr printValue
     rts
 }
 
-acceptData:{
+//.align $100
+readStatusData:{
+    ldx #$00
+read:
+    lda STATUS_REG
+    and #%01000000 // DATA_AV
+    cmp #%01000000
+    beq store
+    jmp noMoreData
+store:    
+    //log(txtRead)
+    lda STATUS_DATA_REG
+    sta statusDataBuffer,x
+    inx
+    //log(txt)
+    jmp read
+noMoreData:
+    lda #$00
+    sta statusDataBuffer,x // add termination
+    rts
+}
+
+//.align $100
+accept:{
+    pha
     lda CONTROL_REG
     ora #$02 // DATA_ACC
     sta CONTROL_REG
 waitForAcceptance:
+    //log(txtWaitACK)
     lda STATUS_REG
     and #$02 // DATA_ACC
     cmp #$00
-    beq accepted
-    jmp waitForAcceptance
+    bne waitForAcceptance
 accepted:
+    //log(txtAccepted)
+    pla
     rts
 }
 
@@ -271,16 +423,18 @@ printValue:{
 }
 
 logStatus:{
+    pha
     lda STATUS_REG
     sta status
     jsr setStatusNumber
     log(txtStatusRegister)
     jsr setBinaryNumber
     log(txtStatusValue)
+    pla
     rts
 }
 
-
+//.align $100
 setBinaryNumber: {
     lda status
 loop:
@@ -296,7 +450,7 @@ zero:
     bne loop
     rts
 }
-
+//.align $100
 setStatusNumber: {
     lda status
     ldx #$2f
@@ -342,11 +496,17 @@ txtNotIdle:
 txtBusy:
 .text "BUSY"
 .byte 13,0
+txtWaitACK:
+.text "WAIT ACK"
+.byte 13,0
 txtPush:
 .text "PUSH DATA"
 .byte 13,0
 txtCommandSent:
 .text "COMMAND SENT"
+.byte 13,0
+txtIdentity:
+.text "> IDENTITY"
 .byte 13,0
 txtLastData:
 .text "LAST DATA"
@@ -369,6 +529,18 @@ txtErrorAbort:
 txtPrepare:
 .text "PREPARE"
 .byte 13,0
+txtGetDir:
+.text "> GET DIR"
+.byte 13,0
+txtChangeDir:
+.text "> CHANGE DIR"
+.byte 13,0
+txtCurrentPath:
+.text "> CURRENT PATH"
+.byte 13,0
+txtOpenDir:
+.text "> OPEN DIR"
+.byte 13,0
 txtWrite:
 .text "WRITE DATA"
 .byte 13,0
@@ -386,14 +558,45 @@ txtStatusValue:
 .text "/"
 txtStatusBinaryValue:
 .text "00000000"
+CRLF:
 .byte 13,0
 
-DOS_CMD_ECHO:
-.byte $01,$f0
-DOS_CMD_ECHO_END:
+
 DOS_CMD_IDENTIFY:
 .byte $01,$01
 DOS_CMD_IDENTIFY_END:
 
+DOS_CMD_CHANGE_DIR:
+.byte $01,$11
+.text "/FLASH/ROMS"
+.byte 0
+DOS_CMD_CHANGE_DIR_END:
+
+DOS_CMD_GET_PATH:
+.byte $01,$12
+DOS_CMD_GET_PATH_END:
+
+DOS_CMD_OPEN_DIR:
+.byte $01,$13
+DOS_CMD_OPEN_DIR_END:
+
+DOS_CMD_READ_DIR:
+.byte $01,$14
+DOS_CMD_READ_DIR_END:
+
+DOS_CMD_CREATE_DIR:
+.byte $01,$16
+.text"TEST"
+DOS_CMD_CREATE_DIR_END:
+
+DOS_CMD_ECHO:
+.byte $01,$f0
+DOS_CMD_ECHO_END:
+
+//.pc = $f00
+.align $100
 dataBuffer:
+.fill DATA_BUFFER_SIZE, 0
+//.pc = $4000
+statusDataBuffer:
 .fill DATA_BUFFER_SIZE, 0
